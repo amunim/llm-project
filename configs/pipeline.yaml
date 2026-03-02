@@ -1,0 +1,5 @@
+﻿# Pipeline configuration placeholder
+lowercase: true
+tokenize: true
+input: data/raw/NUST Bank-Product-Knowledge.xlsx
+output: data/processed/cleaned_chunks.json
