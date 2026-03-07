@@ -1,5 +1,15 @@
-﻿# Pipeline configuration placeholder
-lowercase: true
+﻿# Pipeline configuration
+lowercase: false
 tokenize: true
-input: data/raw/NUST Bank-Product-Knowledge.xlsx
+input: data/raw
 output: data/processed/cleaned_chunks.json
+
+# Embedding & index
+embedding_model: all-MiniLM-L6-v2
+chroma_db_path: data/chroma_db
+collection_name: bank_knowledge
+
+# LLM
+llm_model: Qwen/Qwen2.5-3B-Instruct
+max_new_tokens: 512
+top_k_retrieval: 5

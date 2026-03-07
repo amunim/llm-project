@@ -1,5 +1,10 @@
 ﻿# Data outputs
 /data/processed/
+/data/chroma_db/
+
+# Models
+nust_bank_lora_adapter/
+outputs/
 
 # Python
 __pycache__/

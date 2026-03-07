@@ -1,5 +1,21 @@
-﻿pandas
+﻿# Data preprocessing
+pandas
 chardet
 beautifulsoup4
 langdetect
 openpyxl
+
+# Embeddings & vector store
+sentence-transformers
+chromadb
+
+# LLM & LangChain
+transformers
+accelerate
+torch
+langchain
+langchain-community
+langchain-huggingface
+
+# UI
+streamlit

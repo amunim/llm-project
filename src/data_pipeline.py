@@ -38,11 +38,6 @@ def load_csv(path: str) -> str:
     return df.to_csv(index=False)
 
 
-def load_json(path: str) -> str:
-    with open(path, "r", encoding="utf-8") as f:
-        return json.dumps(json.load(f))
-
-
 def load_excel_rows(path: str) -> list:
     """Read all sheets and return row-level records for better structure."""
     xl = pd.ExcelFile(path)
@@ -74,6 +69,34 @@ def load_excel_rows(path: str) -> list:
                 }
             )
     return records
+
+
+def load_json_faq(path: str) -> list:
+    """Load structured FAQ JSON (categories/questions or list format)."""
+    with open(path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    records = []
+    if isinstance(data, dict) and "categories" in data:
+        for cat in data["categories"]:
+            category = cat.get("category", "General")
+            for q in cat.get("questions", []):
+                text = f"Q: {q['question']}\nA: {q['answer']}"
+                records.append({
+                    "text": text,
+                    "metadata": {
+                        "source": os.path.basename(path),
+                        "category": category,
+                    }
+                })
+    elif isinstance(data, list):
+        for i, item in enumerate(data):
+            text = json.dumps(item) if isinstance(item, dict) else str(item)
+            records.append({
+                "text": text,
+                "metadata": {"source": os.path.basename(path), "index": i}
+            })
+    return records
+
 
 # PDF and DOCX handling would require external packages (pdfminer, python-docx) –
 # see comments below for how to integrate
@@ -259,8 +282,7 @@ def process_file(path: str, tokenizer, lowercase: bool = False) -> list:
         text = load_csv(path)
         records = [{"text": text, "metadata": {"source": os.path.basename(path)}}]
     elif ext == ".json":
-        text = load_json(path)
-        records = [{"text": text, "metadata": {"source": os.path.basename(path)}}]
+        records = load_json_faq(path)
     elif ext in {".xls", ".xlsx"}:
         records = load_excel_rows(path)
     else:
@@ -268,19 +290,30 @@ def process_file(path: str, tokenizer, lowercase: bool = False) -> list:
 
     records = sanitize_records(records, lowercase=lowercase, do_tokenize=False)
 
-    texts = [r["text"] for r in records]
-    sections = []
-    for t in texts:
-        sections += segment_sections(t)
-    chunks = []
-    for sec in sections:
-        chunks += chunk_text(sec, tokenizer)
+    # Preserve per-record metadata (sheet name, category, etc.)
+    output = []
+    for rec in records:
+        text = rec["text"]
+        if not text.strip():
+            continue
+        # Only chunk texts that are very long
+        words = text.split()
+        if len(words) > 600:
+            chunks = chunk_text(text, tokenizer)
+            for chunk in chunks:
+                output.append({"text": chunk, "metadata": rec["metadata"]})
+        else:
+            output.append(rec)
 
-    chunks = deduplicate(chunks)
-    chunks = filter_short(chunks, tokenizer=tokenizer)
-    chunks = filter_language(chunks)
-    meta = {"source": os.path.basename(path)}
-    return enrich_metadata(chunks, **meta)
+    # Deduplicate by text content
+    seen = set()
+    unique = []
+    for item in output:
+        h = hash(item["text"])
+        if h not in seen:
+            seen.add(h)
+            unique.append(item)
+    return unique
 
 
 if __name__ == "__main__":
