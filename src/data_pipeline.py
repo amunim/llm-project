@@ -38,8 +38,25 @@ def load_csv(path: str) -> str:
     return df.to_csv(index=False)
 
 
+def _format_cell(value: str) -> str:
+    """Convert decimal percentages (e.g. '0.19') to display format ('19.00%')."""
+    try:
+        fv = float(value)
+        if 0 < abs(fv) < 1 and "." in value and not value.startswith("0.0"):
+            return f"{fv * 100:.2f}%"
+    except (ValueError, TypeError):
+        pass
+    return value
+
+
 def load_excel_rows(path: str) -> list:
-    """Read all sheets and return row-level records for better structure."""
+    """Read all sheets and return section-level records with merged Q&A pairs.
+
+    Adjacent rows are grouped: each row whose first cell ends with '?'
+    starts a new section, and subsequent non-question rows are merged
+    into it as the answer.  This keeps questions and their multi-row
+    answers in a single chunk so the retriever returns complete info.
+    """
     xl = pd.ExcelFile(path)
     records = []
     for sheet in xl.sheet_names:
@@ -47,27 +64,61 @@ def load_excel_rows(path: str) -> list:
         # Drop columns that are completely empty
         non_empty_cols = [c for c in df.columns if df[c].astype(str).str.strip().any()]
         df = df[non_empty_cols] if non_empty_cols else df
+
+        # --- pass 1: build per-row line objects ---
+        row_lines = []
         for idx, row in df.iterrows():
-            cells = [str(v).strip() for v in row.values if str(v).strip()]
-            if not cells:
+            raw_cells = [str(v).strip() for v in row.values if str(v).strip()]
+            if not raw_cells:
                 continue
-            # Heuristic: if first cell looks like a question and second is present, format as Q/A
-            if len(cells) >= 2 and cells[0].rstrip().endswith("?"):
-                text = f"Q: {cells[0]}\nA: {cells[1]}"
-                if len(cells) > 2:
-                    text += "\nNotes: " + " | ".join(cells[2:])
+            cells = [_format_cell(c) for c in raw_cells]
+            is_q = cells[0].rstrip().endswith("?")
+            row_lines.append({
+                "question": cells[0] if is_q else None,
+                "extra": cells[1:] if is_q else [],
+                "line": " | ".join(cells) if not is_q else None,
+                "is_question": is_q,
+                "row": int(idx),
+            })
+
+        if not row_lines:
+            continue
+
+        # --- pass 2: group into sections (question → answer rows) ---
+        sections: list[list] = []
+        current: list = []
+        for rl in row_lines:
+            if rl["is_question"] and current:
+                sections.append(current)
+                current = []
+            current.append(rl)
+        if current:
+            sections.append(current)
+
+        # --- pass 3: render each section as a single text block ---
+        for section in sections:
+            if section[0]["is_question"]:
+                q = section[0]["question"]
+                answer_parts = []
+                if section[0]["extra"]:
+                    answer_parts.append(" | ".join(section[0]["extra"]))
+                for s in section[1:]:
+                    answer_parts.append(s["line"])
+                if answer_parts:
+                    text = f"Q: {q}\nA: " + "\n".join(answer_parts)
+                else:
+                    text = f"Q: {q}"
             else:
-                text = " | ".join(cells)
-            records.append(
-                {
-                    "text": text,
-                    "metadata": {
-                        "source": os.path.basename(path),
-                        "sheet": sheet,
-                        "row_index": int(idx),
-                    },
-                }
-            )
+                text = "\n".join(s["line"] for s in section)
+
+            records.append({
+                "text": text,
+                "metadata": {
+                    "source": os.path.basename(path),
+                    "sheet": sheet,
+                    "row_index": section[0]["row"],
+                },
+            })
     return records
 
 
