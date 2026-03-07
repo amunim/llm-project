@@ -1,0 +1,48 @@
+graph TD
+    subgraph User Interface
+        A[User Query] --> B[Streamlit Chat UI]
+    end
+
+    subgraph RAG Pipeline
+        B --> C[LangChain RetrievalQA]
+        C --> D[Prompt Engineering & Guard Rails]
+        C --> E[ChromaDB Vector Retrieval]
+        C --> F[Qwen2.5-3B-Instruct LLM]
+    end
+
+    subgraph Embedding & Indexing
+        E --> G[all-MiniLM-L6-v2 Embeddings]
+        G --> H[(ChromaDB Vector Store)]
+    end
+
+    subgraph Data Pipeline
+        I[NUST Bank-Product-Knowledge.xlsx] --> K[Data Ingestion & Cleaning]
+        J[funds_transfer_app_features_faq.json] --> K
+        K --> L[PII Anonymization & Masking]
+        L --> M[Row Grouping & Chunking]
+        M --> N[cleaned_chunks.json]
+        N --> G
+    end
+
+    subgraph Fine-Tuning - Colab T4
+        N --> O[Instruction Format Conversion]
+        O --> P[UnSloth QLoRA 4-bit]
+        P --> Q[SFTTrainer - 3 Epochs]
+        Q --> R[LoRA Adapter]
+        R -.-> F
+    end
+
+    subgraph Response Generation
+        D --> S[System Prompt + Context + Question]
+        S --> F
+        F --> T[Generated Answer]
+        T --> B
+    end
+
+    style A fill:#4CAF50,color:#fff
+    style B fill:#2196F3,color:#fff
+    style C fill:#FF9800,color:#fff
+    style F fill:#9C27B0,color:#fff
+    style H fill:#009688,color:#fff
+    style R fill:#E91E63,color:#fff
+    style T fill:#4CAF50,color:#fff
