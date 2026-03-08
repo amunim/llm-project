@@ -192,6 +192,21 @@ def lowercase_if_needed(text: str, force: bool = False) -> str:
 
 # ---------- Phase 3: Data Privacy & Anonymization ----------
 
+# Public contact info that should NOT be masked
+_PUBLIC_PHONES = {
+    "+92 (51) 111 000 494",
+    "+92 51 111 000 494",
+    "111 000 494",
+    "111-000-787",
+    "021-111-000-787",
+}
+_PUBLIC_EMAILS = {
+    "customerservices@nustbank.com.pk",
+    "remittance@nustbank.com.pk",
+    "remittance.prc@nustbank.com.pk",
+    "support@nustbank.com.pk",
+}
+
 regex_patterns = {
     "ACCOUNT_NUM": r"\b\d{6,16}\b",
     "IBAN": r"\b[A-Z]{2}\d{2}[A-Z0-9]{1,30}\b",
@@ -202,12 +217,26 @@ regex_patterns = {
     "NTN": r"\b\d{7}-\d\b|\b\d{7}\b",
     "PASSPORT": r"\b[A-PR-WY][0-9]{7}\b",
     "ACCOUNT_TITLE": r"\baccount title\s*[:\-]\s*[a-z0-9\s\.,&'-]{3,}\b",
-    "ADDRESS": r"\b(house|flat|plot|street|road|sector|block)\s*[#\w\-\/]+\b",
+    # Only match actual addresses: require # or digit after keyword (e.g. "House #12", "Plot 45-A")
+    "ADDRESS": r"\b(house|flat|plot|street|road|sector|block)\s*[#]\s*[\w\-\/]+\b",
 }
+
+def _normalize_phone(phone: str) -> str:
+    """Strip non-digit chars except leading + for comparison."""
+    return re.sub(r"[^\d+]", "", phone.strip())
+
+_PUBLIC_PHONES_NORMALIZED = {_normalize_phone(p) for p in _PUBLIC_PHONES}
 
 def mask_sensitive(text: str) -> str:
     for label, pattern in regex_patterns.items():
-        text = re.sub(pattern, f"[{label}]", text, flags=re.IGNORECASE)
+        if label == "PHONE":
+            # Preserve public helpline numbers
+            text = re.sub(pattern, lambda m: m.group(0) if _normalize_phone(m.group(0)) in _PUBLIC_PHONES_NORMALIZED else f"[{label}]", text, flags=re.IGNORECASE)
+        elif label == "EMAIL":
+            # Preserve public customer service emails (strip trailing dots from match for comparison)
+            text = re.sub(pattern, lambda m: m.group(0) if m.group(0).rstrip('.').lower() in _PUBLIC_EMAILS else f"[{label}]", text, flags=re.IGNORECASE)
+        else:
+            text = re.sub(pattern, f"[{label}]", text, flags=re.IGNORECASE)
     # mask generic ID-like sequences (long digit runs) after applying specific patterns
     text = re.sub(r"\b\d{9,}\b", "[ID]", text)
     # mask bank account numbers with separators
