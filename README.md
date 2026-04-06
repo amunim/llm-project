@@ -14,7 +14,7 @@ User Query
     │
     ▼
 ┌──────────────┐     ┌───────────────────┐
-│  Streamlit   │────▶│  LangChain        │
+│  Next.js     │────▶│  LangChain        │
 │  Chat UI     │     │  RetrievalQA      │
 └──────────────┘     └───────┬───────────┘
                              │
