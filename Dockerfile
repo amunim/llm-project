@@ -1,14 +1,16 @@
-# CUDA 12.1 runtime – pre-built wheel installs fine without nvcc
-FROM nvidia/cuda:12.1.0-runtime-ubuntu22.04
+# CUDA 12.1 devel – nvcc needed to compile llama-cpp-python with CUDA support
+FROM nvidia/cuda:12.1.0-devel-ubuntu22.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PYTHONUNBUFFERED=1
 
-# Install Python 3.11 + curl for bootstrap pip
+# Install Python 3.11 + build tools for compiling llama-cpp-python
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3.11 \
     python3.11-dev \
     build-essential \
+    cmake \
+    ninja-build \
     git \
     curl \
     && rm -rf /var/lib/apt/lists/*
@@ -23,17 +25,15 @@ RUN ln -sf /usr/bin/python3.11 /usr/bin/python \
 WORKDIR /app
 
 # Install Python deps ---------------------------------------------------------
-# 1. Install llama-cpp-python with CUDA 12.1 pre-built wheel BEFORE requirements.txt
-#    (so the CUDA wheel is not overwritten by a CPU wheel from PyPI)
+# Compile llama-cpp-python from source with CUDA 12.1 support.
+# Once the wheel is cached in zain-0/llm-wheels (see notebooks/build_llama_wheel.ipynb),
+# switch back to the runtime image and install from the cached URL instead.
+ENV CMAKE_ARGS="-DGGML_CUDA=on"
+ENV FORCE_CMAKE=1
+
 COPY backend/requirements.txt backend/requirements.txt
-
-# Wheel pre-built with CUDA 12.1 + Python 3.11 in Colab (see notebooks/build_llama_wheel.ipynb)
-# Update the filename below if you rebuild for a newer version.
-ARG LLAMA_WHEEL=llama_cpp_python-0.3.7-cp311-cp311-linux_x86_64.whl
-ARG WHEEL_BASE=https://huggingface.co/datasets/zain-0/llm-wheels/resolve/main
-
 RUN python -m pip install --no-cache-dir --upgrade pip \
- && python -m pip install --no-cache-dir "${WHEEL_BASE}/${LLAMA_WHEEL}" \
+ && python -m pip install --no-cache-dir llama-cpp-python==0.3.7 \
  && python -m pip install --no-cache-dir -r backend/requirements.txt
 
 # Copy project sources --------------------------------------------------------
