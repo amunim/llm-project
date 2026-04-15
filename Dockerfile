@@ -1,4 +1,4 @@
-# CUDA 12.1 runtime – required for GPU llama-cpp-python on HF Spaces T4
+# CUDA 12.1 runtime – pre-built wheel installs fine without nvcc
 FROM nvidia/cuda:12.1.0-runtime-ubuntu22.04
 
 ENV DEBIAN_FRONTEND=noninteractive
@@ -26,10 +26,14 @@ WORKDIR /app
 # 1. Install llama-cpp-python with CUDA 12.1 pre-built wheel BEFORE requirements.txt
 #    (so the CUDA wheel is not overwritten by a CPU wheel from PyPI)
 COPY backend/requirements.txt backend/requirements.txt
+
+# Wheel pre-built with CUDA 12.1 + Python 3.11 in Colab (see notebooks/build_llama_wheel.ipynb)
+# Update the filename below if you rebuild for a newer version.
+ARG LLAMA_WHEEL=llama_cpp_python-0.3.7-cp311-cp311-linux_x86_64.whl
+ARG WHEEL_BASE=https://huggingface.co/datasets/zain-0/llm-wheels/resolve/main
+
 RUN python -m pip install --no-cache-dir --upgrade pip \
- && python -m pip install --no-cache-dir \
-        llama-cpp-python==0.3.7 \
-        --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cu121 \
+ && python -m pip install --no-cache-dir "${WHEEL_BASE}/${LLAMA_WHEEL}" \
  && python -m pip install --no-cache-dir -r backend/requirements.txt
 
 # Copy project sources --------------------------------------------------------
