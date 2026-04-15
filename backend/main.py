@@ -15,6 +15,7 @@ Local test:
 """
 
 import os
+import re
 import logging
 from contextlib import asynccontextmanager
 
@@ -106,6 +107,35 @@ app.add_middleware(
 
 
 # ---------------------------------------------------------------------------
+# Input sanitization
+# ---------------------------------------------------------------------------
+# Patterns commonly used in prompt-injection / jailbreak attempts
+_INJECTION_PATTERNS = re.compile(
+    r"ignore (previous|above|all|prior)|forget (the |all |previous |above )"
+    r"|you are now|pretend (you are|to be)|act as|jailbreak|DAN mode"
+    r"|system prompt|reveal your instructions|repeat after me"
+    r"|override (instructions|rules)|new persona",
+    re.IGNORECASE,
+)
+
+MAX_QUESTION_LENGTH = 500
+
+
+def _sanitize_question(raw: str) -> str:
+    """Strip leading/trailing whitespace and enforce length cap."""
+    cleaned = raw.strip()
+    # Truncate silently — don't expose the limit in error messages
+    if len(cleaned) > MAX_QUESTION_LENGTH:
+        cleaned = cleaned[:MAX_QUESTION_LENGTH]
+    return cleaned
+
+
+def _is_injection_attempt(question: str) -> bool:
+    """Return True if the question contains known prompt-injection patterns."""
+    return bool(_INJECTION_PATTERNS.search(question))
+
+
+# ---------------------------------------------------------------------------
 # Request / Response schemas
 # ---------------------------------------------------------------------------
 class QueryRequest(BaseModel):
@@ -129,8 +159,18 @@ def health():
 def query(request: QueryRequest):
     if _pipeline is None:
         raise HTTPException(status_code=503, detail="Model not loaded yet.")
-    if not request.question.strip():
+
+    question = _sanitize_question(request.question)
+    if not question:
         raise HTTPException(status_code=400, detail="Question must not be empty.")
 
-    result = _pipeline.query(request.question)
+    # Reject obvious injection attempts at the API boundary before they reach the LLM
+    if _is_injection_attempt(question):
+        logger.warning("[security] Injection attempt blocked: %r", question[:120])
+        return QueryResponse(
+            answer="I can only assist with questions about NUST Bank products and services.",
+            sources=[],
+        )
+
+    result = _pipeline.query(question)
     return QueryResponse(answer=result["answer"], sources=result["sources"])
