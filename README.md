@@ -1,4 +1,14 @@
-﻿# NUST Bank Customer Service Assistant
+﻿---
+title: NUST Bank RAG Assistant
+emoji: 🏦
+colorFrom: blue
+colorTo: green
+sdk: docker
+app_port: 7860
+pinned: false
+---
+
+# NUST Bank Customer Service Assistant
 
 An LLM-powered Retrieval-Augmented Generation (RAG) system that answers customer queries about NUST Bank's products and services using a knowledge base of 35+ product modules.
 
