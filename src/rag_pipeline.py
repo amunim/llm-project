@@ -75,7 +75,13 @@ class RAGPipeline:
             if not model_path:
                 raise ValueError("model_path is required when use_llama_cpp=True")
             n_threads = os.cpu_count() or 2
-            logger.info("LlamaCpp: using %d threads, n_ctx=4096, n_batch=1024", n_threads)
+            # n_gpu_layers=-1 offloads ALL layers to GPU (T4 / any CUDA device).
+            # Falls back to CPU automatically if no CUDA device is found.
+            n_gpu_layers = int(os.getenv("N_GPU_LAYERS", "-1"))
+            logger.info(
+                "LlamaCpp: threads=%d  n_gpu_layers=%s  n_ctx=4096  n_batch=1024",
+                n_threads, "ALL" if n_gpu_layers == -1 else n_gpu_layers,
+            )
             t0 = time.time()
             self.llm = LlamaCpp(
                 model_path=model_path,
@@ -85,6 +91,7 @@ class RAGPipeline:
                 n_ctx=4096,
                 n_batch=1024,
                 n_threads=n_threads,
+                n_gpu_layers=n_gpu_layers,
                 use_mlock=True,
                 verbose=True,
             )

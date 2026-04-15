@@ -1,22 +1,31 @@
-FROM python:3.11-slim
+# CUDA 12.1 runtime – required for GPU llama-cpp-python on HF Spaces T4
+FROM nvidia/cuda:12.1.0-runtime-ubuntu22.04
 
-# System deps for llama-cpp-python (OpenBLAS) + chromadb
+ENV DEBIAN_FRONTEND=noninteractive
+ENV PYTHONUNBUFFERED=1
+
+# Install Python 3.11 + build tools for chromadb native extensions
 RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3.11 \
+    python3.11-dev \
+    python3-pip \
     build-essential \
-    cmake \
-    libopenblas-dev \
     git \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && ln -sf /usr/bin/python3.11 /usr/bin/python \
+    && ln -sf /usr/bin/pip3 /usr/bin/pip
 
 WORKDIR /app
 
 # Install Python deps ---------------------------------------------------------
-# Build llama-cpp-python with OpenBLAS for faster CPU inference
-ENV CMAKE_ARGS="-DLLAMA_BLAS=ON -DLLAMA_BLAS_VENDOR=OpenBLAS"
-ENV FORCE_CMAKE=1
-
+# Install llama-cpp-python with CUDA 12.1 pre-built wheel FIRST
+# (avoids compiling nvcc from scratch; pre-built wheel ~130MB)
 COPY backend/requirements.txt backend/requirements.txt
-RUN pip install --no-cache-dir -r backend/requirements.txt
+RUN pip install --no-cache-dir --upgrade pip \
+ && pip install --no-cache-dir \
+        llama-cpp-python==0.3.7 \
+        --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cu121 \
+ && pip install --no-cache-dir -r backend/requirements.txt
 
 # Copy project sources --------------------------------------------------------
 COPY . .
