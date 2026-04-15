@@ -50,8 +50,8 @@ class RAGPipeline:
         model_name: str = "Qwen/Qwen2.5-3B-Instruct",
         embedding_model: str = "all-MiniLM-L6-v2",
         collection_name: str = "bank_knowledge",
-        max_new_tokens: int = 512,
-        top_k: int = 5,
+        max_new_tokens: int = 256,
+        top_k: int = 3,
         use_llama_cpp: bool = False,
         model_path: str = "",
     ):
@@ -75,14 +75,14 @@ class RAGPipeline:
             if not model_path:
                 raise ValueError("model_path is required when use_llama_cpp=True")
             n_threads = os.cpu_count() or 2
-            logger.info("LlamaCpp: using %d threads, n_ctx=8192, n_batch=1024", n_threads)
+            logger.info("LlamaCpp: using %d threads, n_ctx=4096, n_batch=1024", n_threads)
             t0 = time.time()
             self.llm = LlamaCpp(
                 model_path=model_path,
                 max_tokens=max_new_tokens,
                 temperature=0.7,
                 repeat_penalty=1.15,
-                n_ctx=8192,
+                n_ctx=4096,
                 n_batch=1024,
                 n_threads=n_threads,
                 use_mlock=True,
