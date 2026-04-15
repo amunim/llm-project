@@ -10,6 +10,13 @@ Usage (standalone test):
         --use-llama-cpp --model-path models/nust_bank_qwen2.5_3b_q4km.gguf
 """
 
+try:
+    from .env_bootstrap import ensure_valid_thread_env
+except ImportError:
+    from env_bootstrap import ensure_valid_thread_env
+
+ensure_valid_thread_env()
+
 import argparse
 import logging
 import os
@@ -82,12 +89,22 @@ class RAGPipeline:
         # LLM – two backends
         if use_llama_cpp:
             from langchain_community.llms import LlamaCpp
+            from llama_cpp import llama_cpp as _llama_cpp
+
             if not model_path:
                 raise ValueError("model_path is required when use_llama_cpp=True")
             n_threads = os.cpu_count() or 2
             # n_gpu_layers=-1 offloads ALL layers to GPU (T4 / any CUDA device).
-            # Falls back to CPU automatically if no CUDA device is found.
             n_gpu_layers = int(os.getenv("N_GPU_LAYERS", "-1"))
+            gpu_build = bool(_llama_cpp.llama_supports_gpu_offload())
+            logger.info("llama_cpp.llama_supports_gpu_offload() = %s", gpu_build)
+            if n_gpu_layers != 0 and not gpu_build:
+                raise RuntimeError(
+                    "llama-cpp-python has no GPU backend (installed CPU wheel). "
+                    "Rebuild with the CUDA wheel from "
+                    "https://abetlen.github.io/llama-cpp-python/whl/cu121 "
+                    "(see project Dockerfile)."
+                )
             logger.info(
                 "LlamaCpp: threads=%d  n_gpu_layers=%s  n_ctx=4096  n_batch=1024",
                 n_threads, "ALL" if n_gpu_layers == -1 else n_gpu_layers,

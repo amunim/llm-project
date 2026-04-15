@@ -5,6 +5,13 @@ Usage:
     python src/embeddings.py --input data/processed/cleaned_chunks.json --db-path data/chroma_db
 """
 
+try:
+    from src.env_bootstrap import ensure_valid_thread_env
+except ImportError:
+    from env_bootstrap import ensure_valid_thread_env
+
+ensure_valid_thread_env()
+
 import json
 import argparse
 import chromadb

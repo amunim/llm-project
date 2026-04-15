@@ -1,7 +1,7 @@
 # NUST Bank RAG – backend dependencies
 #
 # Local Windows (CPU):  pip install llama-cpp-python --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu
-# HF Spaces GPU (CUDA): llama-cpp-python is installed separately in Dockerfile with the cu121 wheel
+# HF Spaces GPU (CUDA): llama-cpp-python is installed separately in Dockerfile (cu121 wheel; pin matches index).
 #                        DO NOT add llama-cpp-python here – it would overwrite the CUDA wheel with a CPU one.
 
 fastapi==0.115.6

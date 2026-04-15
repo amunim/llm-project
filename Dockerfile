@@ -1,8 +1,17 @@
 # CUDA 12.1 runtime – pre-built wheel from abetlen index, no nvcc needed
-FROM nvidia/cuda:12.1.0-runtime-ubuntu22.04
+# HF GPU Spaces + NVIDIA wheels are linux/amd64; pin so Mac ARM builders don't pull aarch64 CPU wheels.
+FROM --platform=linux/amd64 nvidia/cuda:12.1.0-runtime-ubuntu22.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PYTHONUNBUFFERED=1
+
+# HF Spaces / hosts may set OMP_NUM_THREADS="" which breaks libgomp; pin valid defaults.
+ENV OMP_NUM_THREADS=4
+ENV MKL_NUM_THREADS=4
+ENV OPENBLAS_NUM_THREADS=4
+ENV NUMEXPR_NUM_THREADS=4
+# Avoid tokenizer fork warnings in threaded servers
+ENV TOKENIZERS_PARALLELISM=false
 
 # Install Python 3.11 + curl only (no cmake/ninja – not compiling from source)
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -26,9 +35,11 @@ WORKDIR /app
 # Install llama-cpp-python from the official pre-built CUDA 12.1 wheel index.
 # This skips source compilation entirely — install takes ~30 sec instead of 20 min.
 # Index: https://abetlen.github.io/llama-cpp-python/whl/cu121
+# IMPORTANT: use a version listed on that index. 0.3.7 is not published there, so pip
+# falls back to PyPI → CPU-only wheel (all layers load on CPU; CPU_AARCH64 on arm64).
 COPY backend/requirements.txt backend/requirements.txt
 RUN python -m pip install --no-cache-dir --upgrade pip \
- && python -m pip install --no-cache-dir llama-cpp-python==0.3.7 \
+ && python -m pip install --no-cache-dir "llama-cpp-python==0.3.20" \
         --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cu121 \
  && python -m pip install --no-cache-dir -r backend/requirements.txt
 

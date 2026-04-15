@@ -15,6 +15,12 @@ Local test:
 """
 
 import os
+
+# Before any stack that loads OpenMP (sentence-transformers, llama.cpp, etc.)
+from src.env_bootstrap import ensure_valid_thread_env
+
+ensure_valid_thread_env()
+
 import re
 import logging
 from contextlib import asynccontextmanager
