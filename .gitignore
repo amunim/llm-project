@@ -1,6 +1,9 @@
 ﻿# Data outputs
 /data/processed/
-/data/chroma_db/
+
+# Raw source data (large binary – not needed at runtime)
+/data/raw/*.xlsx
+/data/raw/*.xls
 
 # Models
 nust_bank_lora_adapter/
