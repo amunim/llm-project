@@ -1,0 +1,21 @@
+# NUST Bank RAG – backend dependencies
+# NOTE: llama-cpp-python on Windows requires a pre-built wheel:
+#   pip install llama-cpp-python --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu
+# The Dockerfile builds from source with OpenBLAS; no special flag needed there.
+
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+pydantic==2.10.6
+
+# LLM inference (CPU-compatible GGUF)
+llama-cpp-python==0.3.7
+
+# HuggingFace Hub (model download)
+huggingface_hub==0.27.1
+
+# RAG / vector store
+langchain==0.3.18
+langchain-community==0.3.17
+langchain-huggingface==0.1.2
+chromadb==0.6.3
+sentence-transformers==3.3.1

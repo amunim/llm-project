@@ -5,9 +5,22 @@
 /data/raw/*.xlsx
 /data/raw/*.xls
 
+# Binary files – never commit these
+*.xlsx
+*.xls
+*.pdf
+*.docx
+*.doc
+
+# ChromaDB – rebuilt at Docker image build time from cleaned_chunks.json
+/data/chroma_db/
+
 # Models
 nust_bank_lora_adapter/
 outputs/
+merged_model/
+gguf_output/
+models/
 
 # Python
 __pycache__/
@@ -17,3 +30,6 @@ __pycache__/
 # OS
 .DS_Store
 Thumbs.db
+
+# Env files
+.env
