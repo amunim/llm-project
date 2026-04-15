@@ -1,16 +1,14 @@
-# CUDA 12.1 devel – nvcc needed to compile llama-cpp-python with CUDA support
-FROM nvidia/cuda:12.1.0-devel-ubuntu22.04
+# CUDA 12.1 runtime – pre-built wheel from abetlen index, no nvcc needed
+FROM nvidia/cuda:12.1.0-runtime-ubuntu22.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 ENV PYTHONUNBUFFERED=1
 
-# Install Python 3.11 + build tools for compiling llama-cpp-python
+# Install Python 3.11 + curl only (no cmake/ninja – not compiling from source)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3.11 \
     python3.11-dev \
     build-essential \
-    cmake \
-    ninja-build \
     git \
     curl \
     && rm -rf /var/lib/apt/lists/*
@@ -25,15 +23,13 @@ RUN ln -sf /usr/bin/python3.11 /usr/bin/python \
 WORKDIR /app
 
 # Install Python deps ---------------------------------------------------------
-# Compile llama-cpp-python from source with CUDA 12.1 support.
-# Once the wheel is cached in zain-0/llm-wheels (see notebooks/build_llama_wheel.ipynb),
-# switch back to the runtime image and install from the cached URL instead.
-ENV CMAKE_ARGS="-DGGML_CUDA=on"
-ENV FORCE_CMAKE=1
-
+# Install llama-cpp-python from the official pre-built CUDA 12.1 wheel index.
+# This skips source compilation entirely — install takes ~30 sec instead of 20 min.
+# Index: https://abetlen.github.io/llama-cpp-python/whl/cu121
 COPY backend/requirements.txt backend/requirements.txt
 RUN python -m pip install --no-cache-dir --upgrade pip \
  && python -m pip install --no-cache-dir llama-cpp-python==0.3.7 \
+        --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cu121 \
  && python -m pip install --no-cache-dir -r backend/requirements.txt
 
 # Copy project sources --------------------------------------------------------
