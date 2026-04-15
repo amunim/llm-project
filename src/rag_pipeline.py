@@ -11,10 +11,15 @@ Usage (standalone test):
 """
 
 import argparse
+import logging
+import os
+import time
 from langchain_community.vectorstores import Chroma
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain.chains import RetrievalQA
 from langchain.prompts import PromptTemplate
+
+logger = logging.getLogger("nust_bank_api")
 
 SYSTEM_PROMPT = """You are a helpful and professional customer service assistant for NUST Bank.
 You answer questions about NUST Bank's products and services based ONLY on the provided context.
@@ -69,15 +74,21 @@ class RAGPipeline:
             from langchain_community.llms import LlamaCpp
             if not model_path:
                 raise ValueError("model_path is required when use_llama_cpp=True")
+            n_threads = os.cpu_count() or 2
+            logger.info("LlamaCpp: using %d threads, n_ctx=8192, n_batch=1024", n_threads)
+            t0 = time.time()
             self.llm = LlamaCpp(
                 model_path=model_path,
                 max_tokens=max_new_tokens,
                 temperature=0.7,
                 repeat_penalty=1.15,
-                n_ctx=4096,
-                n_batch=512,
-                verbose=False,
+                n_ctx=8192,
+                n_batch=1024,
+                n_threads=n_threads,
+                use_mlock=True,
+                verbose=True,
             )
+            logger.info("LlamaCpp model loaded in %.1fs", time.time() - t0)
         else:
             from langchain_huggingface import HuggingFacePipeline
             from transformers import (
@@ -114,7 +125,19 @@ class RAGPipeline:
 
     def query(self, question: str) -> dict:
         """Run a question through the RAG pipeline."""
+        logger.info("[query] START: %r", question)
+
+        t0 = time.time()
+        docs = self.retriever.invoke(question)
+        t_retrieval = time.time() - t0
+        logger.info("[query] ChromaDB retrieval: %.2fs, %d docs", t_retrieval, len(docs))
+
+        t1 = time.time()
         result = self.chain.invoke({"query": question})
+        t_llm = time.time() - t1
+        logger.info("[query] LLM inference: %.2fs", t_llm)
+        logger.info("[query] TOTAL: %.2fs", time.time() - t0)
+
         return {
             "answer": result["result"],
             "sources": [
