@@ -8,13 +8,20 @@ Environment variables:
   HF_TOKEN         - HuggingFace read token (optional for public repos)
   DB_PATH          - override ChromaDB location (default: data/chroma_db)
 
+Vector store:
+  POST /vectorstore/reset   — clear the Chroma collection (empty index)
+  POST /vectorstore/ingest  — multipart files: .pdf, .docx, .json, .txt (or matching Content-Type)
+
 Local test:
   $env:MODEL_PATH = "models/nust_bank_qwen2.5_3b_q4km.gguf"
   uvicorn backend.main:app --reload --port 8000
   # POST http://localhost:8000/query  {"question": "What is the Little Champs Account?"}
 """
 
+import io
+import json
 import os
+import zipfile
 
 # Before any stack that loads OpenMP (sentence-transformers, llama.cpp, etc.)
 from src.env_bootstrap import ensure_valid_thread_env
@@ -25,7 +32,9 @@ import re
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException
+from typing import Annotated
+
+from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -153,12 +162,148 @@ class QueryResponse(BaseModel):
     sources: list
 
 
+class VectorstoreResetResponse(BaseModel):
+    status: str
+    collection: str
+
+
+class VectorstoreIngestResponse(BaseModel):
+    status: str
+    files_processed: int
+    chunks_added: int
+    warnings: list[str]
+
+
+# Same word-based chunking as the Streamlit uploader (must match ``process_file`` contract).
+class _IngestTokenizer:
+    def encode(self, text: str) -> list:
+        return text.split()
+
+    def decode(self, tokens: list) -> str:
+        return " ".join(tokens)
+
+
+_INGEST_TOKENIZER = _IngestTokenizer()
+
+ALLOWED_INGEST_EXTENSIONS = frozenset({".pdf", ".docx", ".json", ".txt"})
+
+# Fallback when filename has no extension but Content-Type is known
+_CONTENT_TYPE_SUFFIX = {
+    "application/pdf": ".pdf",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": ".docx",
+    "application/json": ".json",
+    "text/plain": ".txt",
+}
+
+
+def _effective_upload_name(upload: UploadFile, raw: bytes) -> str:
+    """Return a basename with an extension we can route (pdf / docx / json / txt)."""
+    raw_name = (upload.filename or "").strip() or "upload"
+    base_name = os.path.basename(raw_name)
+    root, ext = os.path.splitext(base_name)
+    ext = ext.lower()
+    if ext in ALLOWED_INGEST_EXTENSIONS:
+        return base_name
+
+    ct = (upload.content_type or "").split(";")[0].strip().lower()
+    if ct in _CONTENT_TYPE_SUFFIX:
+        return (root or "upload") + _CONTENT_TYPE_SUFFIX[ct]
+
+    if not ext and ct in ("application/octet-stream", "binary/octet-stream"):
+        if raw.startswith(b"%PDF"):
+            return (root or "upload") + ".pdf"
+        if raw.startswith(b"PK\x03\x04"):
+            try:
+                with zipfile.ZipFile(io.BytesIO(raw)) as zf:
+                    names = zf.namelist()
+                if "word/document.xml" in names:
+                    return (root or "upload") + ".docx"
+            except zipfile.BadZipFile:
+                pass
+        try:
+            json.loads(raw.decode("utf-8"))
+            return (root or "upload") + ".json"
+        except Exception:
+            return (root or "upload") + ".txt"
+
+    raise HTTPException(
+        status_code=400,
+        detail=(
+            f"Unsupported upload {base_name!r} (Content-Type: {ct!r}). "
+            "Use .pdf, .docx, .json, or .txt, or send a matching Content-Type."
+        ),
+    )
+
+
+MAX_INGEST_BYTES = 25 * 1024 * 1024
+
+
 # ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
 @app.get("/health")
 def health():
     return {"status": "ok", "model_loaded": _pipeline is not None}
+
+
+@app.post("/vectorstore/reset", response_model=VectorstoreResetResponse)
+def vectorstore_reset():
+    """Remove all vectors from the configured Chroma collection and recreate an empty index."""
+    if _pipeline is None:
+        raise HTTPException(status_code=503, detail="Model not loaded yet.")
+    _pipeline.reset_vectorstore()
+    return VectorstoreResetResponse(status="ok", collection=_pipeline.collection_name)
+
+
+@app.post("/vectorstore/ingest", response_model=VectorstoreIngestResponse)
+async def vectorstore_ingest(
+    files: Annotated[list[UploadFile], File(description="One or more .pdf, .docx, .json, or .txt files")],
+):
+    """Parse uploads, normalize text (same pipeline as offline indexing), and append embeddings to Chroma."""
+    if _pipeline is None:
+        raise HTTPException(status_code=503, detail="Model not loaded yet.")
+    if not files:
+        raise HTTPException(status_code=400, detail="Provide at least one file.")
+
+    from src.data_pipeline import process_upload_bytes
+
+    warnings: list[str] = []
+    total_chunks = 0
+    processed = 0
+
+    for upload in files:
+        raw = await upload.read()
+        if len(raw) > MAX_INGEST_BYTES:
+            raise HTTPException(
+                status_code=400,
+                detail=f"File {upload.filename!r} exceeds limit of {MAX_INGEST_BYTES // (1024 * 1024)} MB.",
+            )
+        name = _effective_upload_name(upload, raw)
+        ext = os.path.splitext(name)[1].lower()
+        if ext not in ALLOWED_INGEST_EXTENSIONS:
+            raise HTTPException(status_code=400, detail=f"Rejected {name!r}: extension must be one of {sorted(ALLOWED_INGEST_EXTENSIONS)}.")
+
+        try:
+            chunks = process_upload_bytes(name, raw, _INGEST_TOKENIZER, lowercase=False)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e)) from e
+        except ImportError as e:
+            raise HTTPException(status_code=500, detail=str(e)) from e
+
+        if not chunks:
+            warnings.append(f"No extractable chunks from {name!r} (empty or unsupported content).")
+            continue
+
+        added = _pipeline.add_chunk_dicts(chunks)
+        total_chunks += added
+        processed += 1
+
+    return VectorstoreIngestResponse(
+        status="ok",
+        files_processed=processed,
+        chunks_added=total_chunks,
+        warnings=warnings,
+    )
 
 
 @app.post("/query", response_model=QueryResponse)

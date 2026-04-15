@@ -126,6 +126,11 @@ def load_json_faq(path: str) -> list:
     """Load structured FAQ JSON (categories/questions or list format)."""
     with open(path, "r", encoding="utf-8") as f:
         data = json.load(f)
+    return json_data_to_records(data, os.path.basename(path))
+
+
+def json_data_to_records(data, source_name: str) -> list:
+    """Turn parsed JSON into text records for embedding (FAQ, list, or generic object)."""
     records = []
     if isinstance(data, dict) and "categories" in data:
         for cat in data["categories"]:
@@ -135,22 +140,75 @@ def load_json_faq(path: str) -> list:
                 records.append({
                     "text": text,
                     "metadata": {
-                        "source": os.path.basename(path),
+                        "source": source_name,
                         "category": category,
-                    }
+                    },
                 })
     elif isinstance(data, list):
         for i, item in enumerate(data):
-            text = json.dumps(item) if isinstance(item, dict) else str(item)
+            text = json.dumps(item, ensure_ascii=False) if isinstance(item, dict) else str(item)
             records.append({
                 "text": text,
-                "metadata": {"source": os.path.basename(path), "index": i}
+                "metadata": {"source": source_name, "index": i},
+            })
+    elif isinstance(data, dict):
+        # Generic JSON object: stable key order, nested values as JSON strings
+        lines = []
+        for key in sorted(data.keys()):
+            val = data[key]
+            if isinstance(val, (dict, list)):
+                lines.append(f"{key}: {json.dumps(val, ensure_ascii=False)}")
+            elif val is None:
+                lines.append(f"{key}:")
+            else:
+                lines.append(f"{key}: {val}")
+        body = "\n".join(lines)
+        if body.strip():
+            records.append({
+                "text": body,
+                "metadata": {"source": source_name, "format": "json"},
             })
     return records
 
 
-# PDF and DOCX handling would require external packages (pdfminer, python-docx) –
-# see comments below for how to integrate
+def load_pdf(path: str) -> str:
+    """Extract plain text from a PDF (all pages)."""
+    try:
+        from pypdf import PdfReader
+    except ImportError as e:
+        raise ImportError("PDF support requires the 'pypdf' package.") from e
+    reader = PdfReader(path)
+    parts = []
+    for page in reader.pages:
+        try:
+            t = page.extract_text()
+        except Exception:
+            t = ""
+        if t and t.strip():
+            parts.append(t)
+    return "\n\n".join(parts)
+
+
+def load_docx(path: str) -> str:
+    """Extract text from a Word document (paragraphs and tables)."""
+    try:
+        from docx import Document as DocxDocument
+    except ImportError as e:
+        raise ImportError("DOCX support requires the 'python-docx' package.") from e
+    doc = DocxDocument(path)
+    parts = []
+    for p in doc.paragraphs:
+        if p.text and p.text.strip():
+            parts.append(p.text.strip())
+    for table in doc.tables:
+        rows_out = []
+        for row in table.rows:
+            cells = [cell.text.strip() for cell in row.cells]
+            if any(cells):
+                rows_out.append(" | ".join(cells))
+        if rows_out:
+            parts.append("\n".join(rows_out))
+    return "\n\n".join(parts)
 
 # ---------- Phase 2: Text Cleaning & Normalization ----------
 
@@ -363,6 +421,12 @@ def process_file(path: str, tokenizer, lowercase: bool = False) -> list:
         records = [{"text": text, "metadata": {"source": os.path.basename(path)}}]
     elif ext == ".json":
         records = load_json_faq(path)
+    elif ext == ".pdf":
+        text = load_pdf(path)
+        records = [{"text": text, "metadata": {"source": os.path.basename(path), "format": "pdf"}}]
+    elif ext == ".docx":
+        text = load_docx(path)
+        records = [{"text": text, "metadata": {"source": os.path.basename(path), "format": "docx"}}]
     elif ext in {".xls", ".xlsx"}:
         records = load_excel_rows(path)
     else:
@@ -394,6 +458,32 @@ def process_file(path: str, tokenizer, lowercase: bool = False) -> list:
             seen.add(h)
             unique.append(item)
     return unique
+
+
+def process_upload_bytes(filename: str, raw: bytes, tokenizer, lowercase: bool = False) -> list:
+    """Write upload bytes to a temp file (preserving basename for type + metadata) and run ``process_file``."""
+    import shutil
+    import tempfile
+
+    base = os.path.basename(filename.strip()) if filename else ""
+    if not base:
+        base = "upload"
+    ext = os.path.splitext(base)[1].lower()
+    if not ext:
+        try:
+            text_probe = raw.decode("utf-8")
+            json.loads(text_probe)
+            base = base + ".json"
+        except Exception:
+            base = base + ".txt"
+    tmpdir = tempfile.mkdtemp(prefix="ingest_")
+    try:
+        path = os.path.join(tmpdir, os.path.basename(base))
+        with open(path, "wb") as f:
+            f.write(raw)
+        return process_file(path, tokenizer, lowercase=lowercase)
+    finally:
+        shutil.rmtree(tmpdir, ignore_errors=True)
 
 
 if __name__ == "__main__":

@@ -21,6 +21,9 @@ import argparse
 import logging
 import os
 import time
+import uuid
+
+import chromadb
 from langchain_community.vectorstores import Chroma
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain.chains import RetrievalQA
@@ -72,6 +75,11 @@ class RAGPipeline:
         use_llama_cpp: bool = False,
         model_path: str = "",
     ):
+        self.db_path = db_path
+        self.collection_name = collection_name
+        self.embedding_model_name = embedding_model
+        self.top_k = top_k
+
         # Embedding model (same one used during indexing)
         self.embeddings = HuggingFaceEmbeddings(model_name=embedding_model)
 
@@ -156,6 +164,69 @@ class RAGPipeline:
             chain_type_kwargs={"prompt": PROMPT},
             return_source_documents=True,
         )
+
+    def _rebuild_retrieval(self) -> None:
+        """Point retriever + QA chain at the current ``vectorstore`` instance."""
+        self.retriever = self.vectorstore.as_retriever(
+            search_type="similarity",
+            search_kwargs={"k": self.top_k},
+        )
+        self.chain = RetrievalQA.from_chain_type(
+            llm=self.llm,
+            chain_type="stuff",
+            retriever=self.retriever,
+            chain_type_kwargs={"prompt": PROMPT},
+            return_source_documents=True,
+        )
+
+    @staticmethod
+    def _chroma_safe_metadata(meta: dict | None) -> dict:
+        """Restrict metadata values to types Chroma accepts."""
+        out = {}
+        for k, v in (meta or {}).items():
+            if isinstance(v, (str, int, float, bool)):
+                out[k] = v
+            elif v is None:
+                out[k] = ""
+            else:
+                out[k] = str(v)
+        return out
+
+    def reset_vectorstore(self) -> None:
+        """Delete the knowledge collection and recreate an empty index (same path / name)."""
+        client = chromadb.PersistentClient(path=self.db_path)
+        try:
+            client.delete_collection(self.collection_name)
+        except Exception:
+            pass
+        client.create_collection(
+            name=self.collection_name,
+            metadata={"hnsw:space": "cosine"},
+        )
+        self.vectorstore = Chroma(
+            collection_name=self.collection_name,
+            persist_directory=self.db_path,
+            embedding_function=self.embeddings,
+        )
+        self._rebuild_retrieval()
+        logger.info("Vector store reset: collection %r at %s", self.collection_name, self.db_path)
+
+    def add_chunk_dicts(self, chunks: list[dict]) -> int:
+        """Embed and upsert sanitized chunks ``{"text": str, "metadata": dict}`` into Chroma."""
+        texts = []
+        metadatas = []
+        for c in chunks:
+            text = (c.get("text") or "").strip()
+            if not text:
+                continue
+            texts.append(text)
+            metadatas.append(self._chroma_safe_metadata(c.get("metadata")))
+        if not texts:
+            return 0
+        ids = [str(uuid.uuid4()) for _ in texts]
+        self.vectorstore.add_texts(texts, metadatas=metadatas, ids=ids)
+        logger.info("Ingested %d chunk(s) into Chroma", len(texts))
+        return len(texts)
 
     def query(self, question: str) -> dict:
         """Run a question through the RAG pipeline."""

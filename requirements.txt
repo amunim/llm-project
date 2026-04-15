@@ -4,6 +4,8 @@ chardet
 beautifulsoup4
 langdetect
 openpyxl
+pypdf
+python-docx
 
 # Embeddings & vector store
 sentence-transformers
