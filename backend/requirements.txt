@@ -7,6 +7,8 @@
 fastapi==0.115.6
 uvicorn[standard]==0.34.0
 pydantic==2.10.6
+# Required for File() / multipart (e.g. POST /vectorstore/ingest)
+python-multipart==0.0.20
 
 # HuggingFace Hub (model download)
 huggingface_hub==0.27.1
