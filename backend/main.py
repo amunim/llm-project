@@ -7,6 +7,7 @@ Environment variables:
   HF_HUB_FILENAME  - filename inside the repo  (e.g. nust_bank_qwen2.5_3b_q4km.gguf)
   HF_TOKEN         - HuggingFace read token (optional for public repos)
   DB_PATH          - override ChromaDB location (default: data/chroma_db)
+  NUST_RAG_MAX_NEW_TOKENS, NUST_RAG_TOP_K, NUST_RAG_TEMPERATURE — see ``src/rag_pipeline.py`` module docstring
 
 Vector store:
   POST /vectorstore/reset   — clear the Chroma collection (empty index)
